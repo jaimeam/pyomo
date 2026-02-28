@@ -27,6 +27,7 @@ from pyomo.core.base.component import ModelComponentFactory
 from pyomo.core.base.var import Var
 from pyomo.core.base.constraint import Constraint
 from pyomo.core.base.objective import Objective
+from pyomo.core.base.param import Param
 from pyomo.core.base.suffix import active_import_suffix_generator
 from pyomo.core.base.block import ScalarBlock
 from pyomo.core.base.set import Set
@@ -906,6 +907,119 @@ arguments (which have been ignored):"""
                     "      Total memory = %d bytes following construction of component=%s (after garbage collection)"
                     % (mem_used, component_name)
                 )
+
+    def update_params(self, data=None, filename=None, namespace=None, namespaces=None):
+        """
+        Update mutable Param values on this constructed model instance.
+
+        This method provides a fast way to update parameter data on an
+        existing model instance without cloning or reconstructing any
+        components.  It is intended for iterative optimization patterns
+        (e.g., rolling horizon, day-by-day simulation) where the model
+        structure stays the same but parameter data changes between
+        iterations.
+
+        Only mutable Param values are updated.  Sets, Vars, Constraints,
+        and Objectives are preserved unchanged -- their expressions
+        automatically reflect the updated Param values because they hold
+        references to the same ParamData objects.
+
+        Parameters
+        ----------
+        data : dict or DataPortal, optional
+            Parameter data in the same format as create_instance(data=...).
+            Only Param entries are processed; Set and other component data
+            is silently ignored.
+        filename : str, optional
+            A Pyomo Data File to load parameter data from.
+        namespace : str, optional
+            A namespace used to select data.
+        namespaces : list, optional
+            A list of namespaces used to select data.
+
+        Returns
+        -------
+        self
+            This model instance (for method chaining).
+
+        Raises
+        ------
+        RuntimeError
+            If the model instance is not constructed.
+        ValueError
+            If data contains values for a non-mutable Param.
+
+        Examples
+        --------
+        >>> abstract = AbstractModel()
+        >>> abstract.T = Set()
+        >>> abstract.demand = Param(abstract.T, mutable=True, default=0)
+        >>> # ... declare vars, constraints, objective ...
+        >>>
+        >>> # Create instance once (full construction)
+        >>> instance = abstract.create_instance(data=day1_data)
+        >>> solver.solve(instance)
+        >>>
+        >>> # Update with new data (fast: no clone, no reconstruction)
+        >>> instance.update_params(data=day2_data)
+        >>> solver.solve(instance)
+        """
+        if not self.is_constructed():
+            raise RuntimeError(
+                "Cannot update params on an unconstructed model. "
+                "Call create_instance() first to create a constructed instance."
+            )
+
+        if filename is not None:
+            if data is not None:
+                logger.warning(
+                    "Model.update_params() passed both 'filename' "
+                    "and 'data' keyword arguments.  Ignoring the "
+                    "'data' argument"
+                )
+            data = filename
+        if data is None:
+            data = {}
+
+        if namespaces:
+            _namespaces = list(namespaces)
+        else:
+            _namespaces = []
+        if namespace is not None:
+            _namespaces.append(namespace)
+        if None not in _namespaces:
+            _namespaces.append(None)
+
+        if isinstance(data, str):
+            dp = DataPortal(filename=data, model=self)
+        elif type(data) is DataPortal:
+            dp = data
+        elif type(data) is dict:
+            dp = DataPortal(data_dict=data, model=self)
+        else:
+            raise ValueError(
+                "Cannot load parameter data from object of type '%s'"
+                % str(type(data))
+            )
+
+        for namespace in _namespaces:
+            if namespace is not None and namespace not in dp._data:
+                continue
+            ns_data = dp._data.get(namespace, {})
+            for component_name, component_data in ns_data.items():
+                comp = self.component(component_name)
+                if comp is None or comp.ctype is not Param:
+                    continue
+                if not comp.mutable:
+                    raise ValueError(
+                        "Cannot update immutable Param '%s'.  "
+                        "Declare it with mutable=True to use "
+                        "update_params()." % component_name
+                    )
+                for key, val in component_data.items():
+                    comp[key] = val
+
+        return self
 
 
 @ModelComponentFactory.register(
