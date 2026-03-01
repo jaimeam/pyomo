@@ -151,6 +151,14 @@ class ParameterizedLinearRepnVisitor(
         )
     )
 
+    def _filter_zeros(self, ans):
+        # Parameterized coefficients may be symbolic expressions where
+        # __bool__() raises, so we must use constant_flag() rather than
+        # the all()-based fast path in the base class.
+        _flag = ans.constant_flag
+        for vid in [vid for vid, c in ans.linear.items() if not _flag(c)]:
+            del ans.linear[vid]
+
 
 class ParameterizedQuadraticRepn(ParameterizedRepnMixin, quadratic.QuadraticRepn):
     pass
@@ -166,3 +174,16 @@ class ParameterizedQuadraticRepnVisitor(
             update_exit_node_handlers(quadratic.define_exit_node_handlers())
         )
     )
+
+    def _filter_zeros(self, ans):
+        # Parameterized coefficients may be symbolic expressions where
+        # __bool__() raises, so we must use constant_flag() rather than
+        # the all()-based fast path in the base class.
+        _flag = ans.constant_flag
+        for vid in [vid for vid, c in ans.linear.items() if not _flag(c)]:
+            del ans.linear[vid]
+        if ans.quadratic:
+            for vid in [vid for vid, c in ans.quadratic.items() if not _flag(c)]:
+                del ans.quadratic[vid]
+            if not ans.quadratic:
+                ans.quadratic = None

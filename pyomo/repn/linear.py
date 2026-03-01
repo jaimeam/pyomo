@@ -905,11 +905,15 @@ class LinearRepnVisitor(StreamBasedExpressionVisitor):
         return ans
 
     def _filter_zeros(self, ans):
-        _flag = ans.constant_flag
-        # Note: creating the intermediate list is important, as we are
-        # modifying the dict in place.
-        for vid in [vid for vid, c in ans.linear.items() if not _flag(c)]:
-            del ans.linear[vid]
+        linear = ans.linear
+        # all() iterates in C and short-circuits; in the common case
+        # (no zero coefficients) this avoids the per-element Python
+        # function call overhead of the list comprehension below.
+        if linear and not all(linear.values()):
+            # Note: creating the intermediate list is important, as we
+            # are modifying the dict in place.
+            for vid in [vid for vid, c in linear.items() if not c]:
+                del linear[vid]
 
     def _factor_multiplier_into_ans(self, ans, mult):
         _flag = ans.constant_flag
