@@ -360,6 +360,14 @@ class LinearTemplateRepnVisitor(linear.LinearRepnVisitor):
         self.expanded_templates = {}
         self.remove_fixed_vars = remove_fixed_vars
 
+    def _filter_zeros(self, ans):
+        # Template coefficients may be symbolic expressions where
+        # __bool__() raises, so we must use constant_flag() rather than
+        # the all()-based fast path in the base class.
+        _flag = ans.constant_flag
+        for vid in [vid for vid, c in ans.linear.items() if not _flag(c)]:
+            del ans.linear[vid]
+
     def enterNode(self, node):
         # SumExpression are potentially large nary operators.  Directly
         # populate the result
